@@ -3,10 +3,11 @@
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Search } from "lucide-react";
-import LogoutButton from '@/components/LogoutButton'
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
+import { cn } from "@/lib/utils";
+import { useSidebar } from "@/lib/hooks/use-sidebar";
 
 interface Project {
   id: string
@@ -36,6 +37,7 @@ export default function DashboardPage() {
   const [userName, setUserName] = useState('')
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(true)
+  const { isCollapsed } = useSidebar();
   
   useEffect(() => {
     const initializeSession = async () => {
@@ -147,111 +149,112 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto space-y-8">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-semibold">Hello, {userName}</h1>
-          <p className="text-muted-foreground">Today is {today}</p>
-        </div>
-        <div className="flex gap-4 items-center">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
-            <input
-              type="search"
-              placeholder="Search..."
-              className="pl-10 pr-4 py-2 rounded-full bg-muted/50 border-none focus:ring-2 focus:ring-primary/20 focus:outline-none w-64"
-            />
+    <div className="pt-16">
+      <div className="max-w-7xl mx-auto space-y-8 p-4 sm:p-8">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div>
+            <h1 className="text-2xl font-semibold">Hello, {userName}</h1>
+            <p className="text-muted-foreground">Today is {today}</p>
           </div>
-          <Button className="rounded-full bg-[#1C1B1F] text-white hover:bg-[#2C2B2F]">
-            Add New Project
-          </Button>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {projects.map((project) => (
-          <Card key={project.id} className="p-6 project-card border-none">
-            <div className="flex justify-between items-start mb-8">
-              <div>
-                <h3 className="font-semibold text-lg mb-1">{project.name}</h3>
-                <p className="text-sm text-muted-foreground">
-                  {project.description}
-                </p>
-                <div className="mt-2 text-sm text-muted-foreground">
-                  <span>{project.tasks_count} tasks</span>
-                  <span className="mx-2">·</span>
-                  <span>{project.progress}% complete</span>
-                </div>
-              </div>
-              <div className="flex -space-x-2">
-                {project.project_members.map((member, i) => (
-                  <div
-                    key={i}
-                    className="w-8 h-8 rounded-full border-2 border-white bg-muted flex items-center justify-center text-xs font-medium"
-                    title={member.role}
-                  >
-                    {member.role[0].toUpperCase()}
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="h-2 bg-muted rounded-full overflow-hidden">
-              <div
-                className={`h-full rounded-full ${project.color}`}
-                style={{ width: `${project.progress}%` }}
+          <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center w-full sm:w-auto">
+            <div className="relative w-full sm:w-64">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+              <input
+                type="search"
+                placeholder="Search..."
+                className="w-full pl-10 pr-4 py-2 rounded-full bg-muted/50 border-none focus:ring-2 focus:ring-primary/20 focus:outline-none"
               />
             </div>
-          </Card>
-        ))}
-      </div>
+            <Button className="w-full sm:w-auto rounded-full bg-[#1C1B1F] text-white hover:bg-[#2C2B2F]">
+              Add New Project
+            </Button>
+          </div>
+        </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card className="p-6 border-none">
-          <h2 className="text-lg font-semibold mb-4">Your Tasks</h2>
-          <div className="space-y-4">
-            {tasks.map((task) => (
-              <div key={task.id} className="flex items-center gap-4 p-4 rounded-lg bg-muted/50">
-                <div className="w-1 h-12 rounded-full bg-blue-500" />
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+          {projects.map((project) => (
+            <Card key={project.id} className="p-6 project-card border-none">
+              <div className="flex justify-between items-start mb-8">
                 <div>
-                  <h3 className="font-medium">{task.title}</h3>
+                  <h3 className="font-semibold text-lg mb-1">{project.name}</h3>
                   <p className="text-sm text-muted-foreground">
-                    {task.description}
-                    <span className="ml-2 text-xs opacity-60">
-                      in {task.projects?.name}
-                    </span>
+                    {project.description}
                   </p>
+                  <div className="mt-2 text-sm text-muted-foreground">
+                    <span>{project.tasks_count} tasks</span>
+                    <span className="mx-2">·</span>
+                    <span>{project.progress}% complete</span>
+                  </div>
+                </div>
+                <div className="flex -space-x-2">
+                  {project.project_members.map((member, i) => (
+                    <div
+                      key={i}
+                      className="w-8 h-8 rounded-full border-2 border-white bg-muted flex items-center justify-center text-xs font-medium"
+                      title={member.role}
+                    >
+                      {member.role[0].toUpperCase()}
+                    </div>
+                  ))}
                 </div>
               </div>
-            ))}
-            {tasks.length === 0 && (
-              <p className="text-muted-foreground text-center py-4">
-                No pending tasks
-              </p>
-            )}
-          </div>
-        </Card>
+              <div className="h-2 bg-muted rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full ${project.color}`}
+                  style={{ width: `${project.progress}%` }}
+                />
+              </div>
+            </Card>
+          ))}
+        </div>
 
-        <Card className="p-6 border-none">
-          <h2 className="text-lg font-semibold mb-4">Statistics</h2>
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <p className="text-2xl font-semibold">{tasks.length}</p>
-              <p className="text-sm text-muted-foreground">Pending tasks</p>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <Card className="p-6 border-none">
+            <h2 className="text-lg font-semibold mb-4">Your Tasks</h2>
+            <div className="space-y-4">
+              {tasks.map((task) => (
+                <div key={task.id} className="flex items-center gap-4 p-4 rounded-lg bg-muted/50">
+                  <div className="w-1 h-12 rounded-full bg-blue-500" />
+                  <div>
+                    <h3 className="font-medium">{task.title}</h3>
+                    <p className="text-sm text-muted-foreground">
+                      {task.description}
+                      <span className="ml-2 text-xs opacity-60">
+                        in {task.projects?.name}
+                      </span>
+                    </p>
+                  </div>
+                </div>
+              ))}
+              {tasks.length === 0 && (
+                <p className="text-muted-foreground text-center py-4">
+                  No pending tasks
+                </p>
+              )}
             </div>
-            <div>
-              <p className="text-2xl font-semibold">{projects.length}</p>
-              <p className="text-sm text-muted-foreground">Active projects</p>
+          </Card>
+
+          <Card className="p-6 border-none">
+            <h2 className="text-lg font-semibold mb-4">Statistics</h2>
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <p className="text-2xl font-semibold">{tasks.length}</p>
+                <p className="text-sm text-muted-foreground">Pending tasks</p>
+              </div>
+              <div>
+                <p className="text-2xl font-semibold">{projects.length}</p>
+                <p className="text-sm text-muted-foreground">Active projects</p>
+              </div>
+              <div>
+                <p className="text-2xl font-semibold">
+                  {Math.round(projects.reduce((acc, project) => acc + project.progress, 0) / Math.max(projects.length, 1))}%
+                </p>
+                <p className="text-sm text-muted-foreground">Avg. progress</p>
+              </div>
             </div>
-            <div>
-              <p className="text-2xl font-semibold">
-                {Math.round(projects.reduce((acc, project) => acc + project.progress, 0) / Math.max(projects.length, 1))}%
-              </p>
-              <p className="text-sm text-muted-foreground">Avg. progress</p>
-            </div>
-          </div>
-        </Card>
+          </Card>
+        </div>
       </div>
-      <LogoutButton />
     </div>
   )
 }

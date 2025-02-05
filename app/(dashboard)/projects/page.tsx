@@ -8,6 +8,25 @@ import { cn } from "@/lib/utils";
 import { useRouter } from "next/navigation";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 import { useUser } from "@/lib/hooks/use-user";
+import { NewProjectModal } from "@/components/modals/new-project-modal";
+import { useSidebar } from "@/lib/hooks/use-sidebar";
+
+// Add this CSS at the top of your file after the imports
+const progressBarStyles = `
+  .progress-bar {
+    width: 100%;
+    height: 6px;
+    background-color: #f3f4f6;
+    border-radius: 9999px;
+    overflow: hidden;
+  }
+
+  .progress-bar-fill {
+    height: 100%;
+    border-radius: 9999px;
+    transition: width 0.3s ease;
+  }
+`;
 
 export default function ProjectsPage() {
   const router = useRouter();
@@ -17,6 +36,8 @@ export default function ProjectsPage() {
   const supabase = createClientComponentClient();
   const { user } = useUser();
   const [userName, setUserName] = useState('User');
+  const [showNewProjectModal, setShowNewProjectModal] = useState(false);
+  const { isCollapsed } = useSidebar();
 
   const today = new Date().toLocaleDateString('en-US', {
     weekday: 'long',
@@ -30,44 +51,32 @@ export default function ProjectsPage() {
       if (!user?.id) return;
       
       try {
-        const { data: userProjects, error } = await supabase
+        // Get all projects where user is creator or member
+        const { data: projectsData, error: projectsError } = await supabase
           .from('projects')
           .select(`
             *,
-            project_members!inner(user_id),
-            tasks(count)
+            project_members (user_id),
+            tasks (count)
           `)
-          .eq('project_members.user_id', user.id)
           .order('created_at', { ascending: false });
 
-        if (error) throw error;
+        if (projectsError) throw projectsError;
 
-        const projectsWithTaskCount = userProjects.map(project => ({
+        if (!projectsData?.length) {
+          setProjects([]);
+          setLoading(false);
+          return;
+        }
+
+        // Transform the data
+        const projectsWithDetails = projectsData.map(project => ({
           ...project,
-          tasks: project.tasks[0].count || 0,
-          // Add default values for fields not in database
-          progress: 0, // You might want to calculate this based on completed tasks
-          color: getRandomColor(), // Helper function to assign colors
-          members: 0, // We'll fetch this in the next query
-          status: project.status || 'In Progress'
+          members: project.project_members?.length || 0,
+          tasks: project.tasks?.[0]?.count || 0
         }));
 
-        // Fetch member counts for each project
-        const projectsWithMembers = await Promise.all(
-          projectsWithTaskCount.map(async (project) => {
-            const { count } = await supabase
-              .from('project_members')
-              .select('*', { count: 'exact' })
-              .eq('project_id', project.id);
-            
-            return {
-              ...project,
-              members: count || 0
-            };
-          })
-        );
-
-        setProjects(projectsWithMembers);
+        setProjects(projectsWithDetails);
       } catch (error) {
         console.error('Error fetching projects:', error);
       } finally {
@@ -108,96 +117,117 @@ export default function ProjectsPage() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto space-y-8">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-semibold">Hello, {userName}</h1>
-          <p className="text-muted-foreground">Today is {today}</p>
-        </div>
-        <div className="flex gap-4 items-center">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
-            <input
-              type="search"
-              placeholder="Search projects..."
-              className="pl-10 pr-4 py-2 rounded-full bg-muted/50 border-none focus:ring-2 focus:ring-primary/20 focus:outline-none w-64"
-            />
+    <div className="pt-16">
+      <div className="max-w-7xl mx-auto space-y-8 p-8">
+        <div className="flex justify-between items-center">
+          <div>
+            <h1 className="text-2xl font-semibold">Hello, {userName}</h1>
+            <p className="text-muted-foreground">Today is {today}</p>
           </div>
-          <Button className="rounded-full bg-[#1C1B1F] text-white hover:bg-[#2C2B2F]">
-            <Plus className="h-4 w-4 mr-2" />
-            Add New Project
-          </Button>
-          <Button variant="ghost" size="icon" className="rounded-full">
-            <Calendar className="h-5 w-5" />
-          </Button>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {projects.map((project) => (
-          <Card 
-            key={project.id} 
-            className="p-6 project-card border-none cursor-pointer transition-transform hover:scale-[1.02]"
-            onClick={() => handleProjectClick(project.id)}
-          >
-            <div className="space-y-6">
-              <div className="flex justify-between items-start">
-                <div>
-                  <h3 className="text-lg font-semibold mb-1">{project.title}</h3>
-                  <p className="text-sm text-muted-foreground line-clamp-2">{project.description}</p>
-                </div>
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
-                  className="h-8 w-8"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    // Handle menu click
-                  }}
-                >
-                  <MoreVertical className="h-4 w-4" />
-                </Button>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <div className="flex -space-x-2 flex-1">
-                  {[...Array(3)].map((_, i) => (
-                    <div
-                      key={i}
-                      className="w-8 h-8 rounded-full border-2 border-white bg-muted"
-                    />
-                  ))}
-                  {project.members > 3 && (
-                    <div className="w-8 h-8 rounded-full border-2 border-white bg-primary/10 text-primary flex items-center justify-center text-xs font-medium">
-                      +{project.members - 3}
-                    </div>
-                  )}
-                </div>
-                <span className={cn(
-                  "px-2 py-1 rounded-full text-xs font-medium",
-                  project.status === "In Progress" && "bg-blue-100 text-blue-700",
-                  project.status === "In Review" && "bg-yellow-100 text-yellow-700",
-                  project.status === "Planning" && "bg-purple-100 text-purple-700"
-                )}>
-                  {project.status}
-                </span>
-              </div>
-
-              <div>
-                <div className="flex justify-between text-sm mb-1">
-                  <span className="text-muted-foreground">{project.tasks} tasks</span>
-                  <span className="font-medium">{project.progress}%</span>
-                </div>
-                <div className="progress-bar">
-                  <div
-                    className={`progress-bar-fill ${project.color}`}
-                    style={{ width: `${project.progress}%` }}
-                  />
-                </div>
-              </div>
+          <div className="flex gap-4 items-center">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+              <input
+                type="search"
+                placeholder="Search projects..."
+                className="pl-10 pr-4 py-2 rounded-full bg-muted/50 border-none focus:ring-2 focus:ring-primary/20 focus:outline-none w-64"
+              />
             </div>
-          </Card>
-        ))}
+            <Button 
+              className="rounded-full bg-[#1C1B1F] text-white hover:bg-[#2C2B2F]"
+              onClick={() => setShowNewProjectModal(true)}
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Add New Project
+            </Button>
+            <Button variant="ghost" size="icon" className="rounded-full">
+              <Calendar className="h-5 w-5" />
+            </Button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {projects.map((project) => (
+            <Card 
+              key={project.id} 
+              className="p-6 project-card border-none cursor-pointer transition-transform hover:scale-[1.02]"
+              onClick={() => handleProjectClick(project.id)}
+            >
+              <div className="space-y-6">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h3 className="text-lg font-semibold mb-1">{project.name}</h3>
+                    <p className="text-sm text-muted-foreground line-clamp-2">{project.description}</p>
+                  </div>
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    className="h-8 w-8"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      // Handle menu click
+                    }}
+                  >
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <div className="flex -space-x-2 flex-1">
+                    {[...Array(Math.min(3, project.members))].map((_, i) => (
+                      <div
+                        key={i}
+                        className="w-8 h-8 rounded-full border-2 border-white bg-muted"
+                      />
+                    ))}
+                    {project.members > 3 && (
+                      <div className="w-8 h-8 rounded-full border-2 border-white bg-primary/10 text-primary flex items-center justify-center text-xs font-medium">
+                        +{project.members - 3}
+                      </div>
+                    )}
+                  </div>
+                  <span className={cn(
+                    "px-2 py-1 rounded-full text-xs font-medium",
+                    project.status === "in_progress" && "bg-blue-100 text-blue-700",
+                    project.status === "in_review" && "bg-yellow-100 text-yellow-700",
+                    project.status === "planning" && "bg-purple-100 text-purple-700",
+                    project.status === "completed" && "bg-green-100 text-green-700"
+                  )}>
+                    {project.status === "in_progress" ? "In Progress" :
+                     project.status === "in_review" ? "In Review" :
+                     project.status === "planning" ? "Planning" :
+                     "Completed"}
+                  </span>
+                </div>
+
+                <div>
+                  <div className="flex justify-between text-sm mb-1">
+                    <span className="text-muted-foreground">{project.tasks} tasks</span>
+                    <span className="font-medium">{project.progress}%</span>
+                  </div>
+                  <div className="progress-bar">
+                    <div
+                      className="progress-bar-fill"
+                      style={{ 
+                        width: `${project.progress}%`,
+                        backgroundColor: project.color // Use the color directly
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+
+        <NewProjectModal
+          isOpen={showNewProjectModal}
+          onClose={() => setShowNewProjectModal(false)}
+          onSuccess={() => {
+            // Refresh the projects list
+            router.refresh();
+          }}
+        />
       </div>
     </div>
   );
