@@ -1,10 +1,22 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "../trpc";
+import { TRPCError } from "@trpc/server";
 
 export const tasksRouter = createTRPCRouter({
   list: protectedProcedure.query(async ({ ctx }) => {
-    // Implementation for listing tasks
-    return [];
+    const { data: tasks, error } = await ctx.supabase
+      .from('tasks')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      throw new TRPCError({
+        code: 'INTERNAL_SERVER_ERROR',
+        message: error.message,
+      });
+    }
+
+    return tasks;
   }),
   
   create: protectedProcedure
@@ -14,7 +26,24 @@ export const tasksRouter = createTRPCRouter({
       projectId: z.string(),
     }))
     .mutation(async ({ ctx, input }) => {
-      // Implementation for creating a task
-      return null;
+      const { data: task, error } = await ctx.supabase
+        .from('tasks')
+        .insert({
+          title: input.title,
+          description: input.description,
+          project_id: input.projectId,
+          user_id: ctx.session.user.id,
+        })
+        .select()
+        .single();
+
+      if (error) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: error.message,
+        });
+      }
+
+      return task;
     }),
 });

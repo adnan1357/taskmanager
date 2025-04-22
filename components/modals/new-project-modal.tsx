@@ -8,6 +8,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
+import { Paintbrush } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 interface NewProjectModalProps {
   isOpen: boolean;
@@ -18,55 +21,90 @@ interface NewProjectModalProps {
 // Add this type to ensure we use correct status values
 type ProjectStatus = 'planning' | 'in_progress' | 'in_review' | 'completed';
 
+// Add this constant at the top of the file
+const PROJECT_COLORS = [
+  "#FF5733", // Orange-Red
+  "#33FF57", // Lime Green
+  "#3357FF", // Blue
+  "#FF33F5", // Pink
+  "#33FFF5", // Cyan
+  "#FFB833", // Orange
+  "#8B33FF", // Purple
+  "#FF3333", // Red
+  "#33FF99", // Mint
+  "#3399FF", // Light Blue
+];
+
 export function NewProjectModal({ isOpen, onClose, onSuccess }: NewProjectModalProps) {
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     name: "",
     description: "",
-    status: "planning" as ProjectStatus, // Note: using lowercase with underscore
+    status: "planning" as ProjectStatus,
     progress: 0,
-    color: "",
+    color: "#4f46e5", // Default color
     due_date: ""
   });
   
   const supabase = createClientComponentClient();
   const router = useRouter();
 
-  const getRandomColor = () => {
-    const colors = ['#8B5CF6', '#67E3F9', '#FF8A65'];
-    return colors[Math.floor(Math.random() * colors.length)];
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
     try {
-      // Get the current user
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("No user found");
 
-      // Start a transaction
-      const { data: project, error: projectError } = await supabase.rpc('create_project_with_owner', {
-        project_data: {
+      // First create the project
+      const { data: project, error: projectError } = await supabase
+        .from('projects')
+        .insert({
           name: formData.name,
           description: formData.description,
           status: formData.status,
           progress: 0,
-          color: getRandomColor(),
+          color: formData.color,
           created_by: user.id,
           due_date: formData.due_date || null
-        },
-        owner_id: user.id
-      });
+        })
+        .select()
+        .single();
 
       if (projectError) throw projectError;
 
-      onSuccess?.();
+      // Then add the creator as project owner
+      const { error: memberError } = await supabase
+        .from('project_members')
+        .insert({
+          project_id: project.id,
+          user_id: user.id,
+          role: 'owner'
+        });
+
+      if (memberError) throw memberError;
+
+      // Reset form
+      setFormData({
+        name: "",
+        description: "",
+        status: "planning",
+        progress: 0,
+        color: "#4f46e5",
+        due_date: ""
+      });
+
+      // Call onSuccess callback
+      await onSuccess?.();
+      
+      // Close modal
       onClose();
-      router.refresh();
+      
+      toast.success('Project created successfully');
     } catch (error) {
       console.error('Error creating project:', error);
+      toast.error('Failed to create project');
     } finally {
       setLoading(false);
     }
@@ -122,15 +160,52 @@ export function NewProjectModal({ isOpen, onClose, onSuccess }: NewProjectModalP
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="due_date">Due Date</Label>
-              <Input
-                id="due_date"
-                type="datetime-local"
-                value={formData.due_date}
-                onChange={(e) => setFormData({ ...formData, due_date: e.target.value })}
-                className="w-full"
-              />
+              <Label htmlFor="color">Project Color</Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button 
+                    variant="outline" 
+                    className="w-full justify-start gap-2"
+                  >
+                    <div 
+                      className="h-4 w-4 rounded-full" 
+                      style={{ backgroundColor: formData.color }} 
+                    />
+                    <Paintbrush className="h-4 w-4" />
+                    <span>Select Color</span>
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-64">
+                  <div className="grid grid-cols-5 gap-2">
+                    {PROJECT_COLORS.map((color) => (
+                      <button
+                        key={color}
+                        className={`h-8 w-8 rounded-full cursor-pointer transition-transform hover:scale-110 focus:outline-none focus:ring-2 focus:ring-offset-2`}
+                        style={{ 
+                          backgroundColor: color,
+                          border: formData.color === color ? '2px solid black' : 'none'
+                        }}
+                        onClick={() => {
+                          setFormData({ ...formData, color });
+                        }}
+                        type="button"
+                      />
+                    ))}
+                  </div>
+                </PopoverContent>
+              </Popover>
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="due_date">Due Date</Label>
+            <Input
+              id="due_date"
+              type="datetime-local"
+              value={formData.due_date}
+              onChange={(e) => setFormData({ ...formData, due_date: e.target.value })}
+              className="w-full"
+            />
           </div>
 
           <DialogFooter>

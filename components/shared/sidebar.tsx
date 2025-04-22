@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, BarChart2, ListTodo, Settings, FolderKanban, ChevronLeft, ChevronRight, Menu, X } from "lucide-react";
+import { LayoutDashboard, BarChart2, ListTodo, Settings, FolderKanban, ChevronLeft, ChevronRight, Menu, X, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser } from "@/lib/hooks/use-user";
 import { useState, useEffect } from "react";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 import { useSidebar } from "@/lib/hooks/use-sidebar";
 import LogoutButton from '@/components/LogoutButton'
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -17,6 +18,7 @@ export function Sidebar() {
   const { isCollapsed, toggleSidebar } = useSidebar();
   const supabase = createClientComponentClient();
   const [isMobileOpen, setIsMobileOpen] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
 
   useEffect(() => {
     async function fetchUserName() {
@@ -39,7 +41,6 @@ export function Sidebar() {
   const links = [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { href: "/projects", label: "Projects", icon: FolderKanban },
-    { href: "/analytics", label: "Analytics", icon: BarChart2 },
     { href: "/tasks", label: "Task List", icon: ListTodo },
     { href: "/settings", label: "Setting", icon: Settings },
   ];
@@ -54,56 +55,83 @@ export function Sidebar() {
         {isMobileOpen ? <X size={24} /> : <Menu size={24} />}
       </button>
 
-      <aside className={cn(
-        "bg-gradient-to-b from-purple-950 to-slate-900 border-r border-purple-800/30 py-8 fixed top-16 bottom-0 transition-all duration-300 z-40 flex flex-col",
-        "lg:w-64 lg:translate-x-0",
-        isCollapsed ? "lg:w-20" : "lg:w-64",
-        isMobileOpen ? "w-64 translate-x-0" : "w-64 -translate-x-full",
-      )}>
-        {/* Collapse button - visible only on desktop */}
-        <button
-          onClick={toggleSidebar}
-          className="absolute -right-3 top-12 bg-purple-800/30 rounded-full p-1.5 text-purple-200 hover:bg-purple-800/50 transition-colors z-50 hidden lg:block"
-        >
-          {isCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
-        </button>
-        
-        <div className={cn("mb-8 px-6", isCollapsed && "px-4")}>
-          <div className="w-12 h-12 rounded-full bg-purple-800/30 mb-2" />
-          {!isCollapsed && (
-            <>
+      <aside
+        className={cn(
+          "fixed left-0 top-0 z-30 h-screen border-r pt-16 transition-all duration-300",
+          "bg-gradient-to-b from-purple-950 to-slate-900 border-purple-800/30",
+          !isHovered ? "w-16" : "w-64"
+        )}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+      >
+        <div className={cn(
+          "flex flex-col h-full gap-4 p-4 transition-all duration-300",
+          !isHovered && "items-center"
+        )}>
+          {/* User section */}
+          <div className="flex flex-col items-center">
+            <Avatar className={cn(
+              "transition-all duration-300",
+              !isHovered ? "w-10 h-10" : "w-12 h-12"
+            )}>
+              <AvatarFallback className="bg-purple-800/30 text-purple-50">
+                {userName
+                  ? userName
+                      .split(' ')
+                      .map(name => name[0])
+                      .join('')
+                      .toUpperCase()
+                  : '?'}
+              </AvatarFallback>
+            </Avatar>
+            {/* User info section with smooth transition */}
+            <div className={cn(
+              "overflow-hidden transition-all duration-300",
+              isHovered ? "h-auto opacity-100 mt-2" : "h-0 opacity-0"
+            )}>
               <h3 className="font-medium text-purple-50">{userName}</h3>
               <p className="text-sm text-purple-300/70">{user?.email || ''}</p>
-            </>
-          )}
-        </div>
+            </div>
+          </div>
 
-        <nav className="space-y-2 px-2 flex-1">
-          {links.map(({ href, label, icon: Icon }) => (
-            <Link
-              key={href}
-              href={href}
-              className={cn(
-                "flex items-center gap-3 px-4 py-2 rounded-lg text-purple-200 transition-colors",
-                "hover:bg-purple-800/20",
-                pathname === href && "bg-purple-800/30 text-purple-50"
-              )}
-              title={isCollapsed ? label : undefined}
-            >
-              <Icon className="h-5 w-5" />
-              {!isCollapsed && <span>{label}</span>}
-            </Link>
-          ))}
-        </nav>
+          <nav className="flex flex-col gap-1">
+            {links.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={cn(
+                  "flex items-center gap-3 px-4 py-2 rounded-lg text-purple-200 transition-colors",
+                  "hover:bg-purple-800/20",
+                  pathname === item.href && "bg-purple-800/30 text-purple-50",
+                  !isHovered && "justify-center px-2"
+                )}
+              >
+                <item.icon className="h-5 w-5" />
+                <span className={cn(
+                  "transition-all duration-300 overflow-hidden",
+                  !isHovered ? "w-0 opacity-0" : "w-auto opacity-100"
+                )}>
+                  {item.label}
+                </span>
+              </Link>
+            ))}
+          </nav>
 
-        {/* Logout button at bottom */}
-        <div className={cn("px-2 mt-auto", isCollapsed ? "px-4" : "px-6")}>
-          <LogoutButton className={cn(
-            "w-full flex items-center gap-3 px-4 py-2 rounded-lg text-purple-200 transition-colors hover:bg-purple-800/20",
-            isCollapsed && "justify-center"
-          )}>
-            {isCollapsed ? "×" : "Logout"}
-          </LogoutButton>
+          {/* Logout button */}
+          <div className="mt-auto w-full">
+            <LogoutButton className={cn(
+              "w-full flex items-center gap-3 rounded-lg text-purple-200 transition-colors hover:bg-purple-800/20",
+              isHovered ? "px-4 py-2" : "justify-center px-2 py-2"
+            )}>
+              <LogOut className="h-5 w-5" />
+              <span className={cn(
+                "transition-all duration-300 overflow-hidden",
+                !isHovered ? "w-0 opacity-0" : "w-auto opacity-100"
+              )}>
+                Logout
+              </span>
+            </LogoutButton>
+          </div>
         </div>
       </aside>
 

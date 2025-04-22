@@ -9,7 +9,7 @@
   --card-foreground: 224 71% 4%;
   --popover: 0 0% 100%;
   --popover-foreground: 224 71% 4%;
-  --primary: 262 83% 58%;
+  --primary: 262.1 83.3% 57.8%;
   --primary-foreground: 210 40% 98%;
   --secondary: 186 83% 74%;
   --secondary-foreground: 222 47% 11%;
@@ -21,7 +21,7 @@
   --destructive-foreground: 210 40% 98%;
   --border: 220 13% 91%;
   --input: 220 13% 91%;
-  --ring: 262 83% 58%;
+  --ring: 262.1 83.3% 57.8%;
   --radius: 1rem;
 }
 
@@ -48,11 +48,17 @@
 }
 
 @layer base {
+  html {
+    @apply bg-purple-500;
+  }
   * {
-    @apply border-border;
+    @apply border-[hsl(var(--border))];
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-purple-500;
+  }
+  [data-dashboard] {
+    @apply bg-white;
   }
 }
 

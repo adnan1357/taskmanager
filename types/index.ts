@@ -15,3 +15,14 @@ export interface Task {
   createdAt: Date;
   updatedAt: Date;
 }
+
+export interface Activity {
+  id: string;
+  type: string;
+  description: string;
+  created_at: string;
+  actor: {
+    full_name: string;
+    avatar_url: string;
+  };
+}

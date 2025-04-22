@@ -2,20 +2,24 @@
 
 import { createContext, useContext, useState } from 'react';
 
-interface SidebarContextType {
-  isCollapsed: boolean;
-  toggleSidebar: () => void;
-}
-
-const SidebarContext = createContext<SidebarContextType | undefined>(undefined);
+export const SidebarContext = createContext({
+  isCollapsed: false,
+  isHovered: false,
+  toggleSidebar: () => {},
+  setIsHovered: (value: boolean) => {}
+});
 
 export function SidebarProvider({ children }: { children: React.ReactNode }) {
   const [isCollapsed, setIsCollapsed] = useState(false);
-
-  const toggleSidebar = () => setIsCollapsed(!isCollapsed);
+  const [isHovered, setIsHovered] = useState(false);
 
   return (
-    <SidebarContext.Provider value={{ isCollapsed, toggleSidebar }}>
+    <SidebarContext.Provider value={{
+      isCollapsed,
+      isHovered,
+      toggleSidebar: () => setIsCollapsed(!isCollapsed),
+      setIsHovered
+    }}>
       {children}
     </SidebarContext.Provider>
   );

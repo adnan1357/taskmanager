@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,12 +9,26 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 import { useUser } from "@/lib/hooks/use-user";
 import { toast } from "sonner";
+import { AIEnhanceButton } from "@/components/ui/ai-enhance-button";
+import { sendTaskEmailNotification } from '@/lib/email';
 
 interface NewTaskModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => Promise<void>;
   projectId: string;
+}
+
+interface ProjectMemberUser {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+  notifications_enabled?: boolean;
+}
+
+interface ProjectMember {
+  user_id: string;
+  users: ProjectMemberUser;
 }
 
 export function NewTaskModal({ isOpen, onClose, onSuccess, projectId }: NewTaskModalProps) {
@@ -29,6 +43,21 @@ export function NewTaskModal({ isOpen, onClose, onSuccess, projectId }: NewTaskM
     assignee_id: user?.id || '', // Default to current user
     due_date: ''
   });
+  const [assignee, setAssignee] = useState<string>('');
+
+  useEffect(() => {
+    // Auto-set the assignee to the current user when opening the modal
+    const setCurrentUserAsAssignee = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        setAssignee(user.id);
+      }
+    };
+    
+    if (isOpen) {
+      setCurrentUserAsAssignee();
+    }
+  }, [isOpen]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -44,16 +73,50 @@ export function NewTaskModal({ isOpen, onClose, onSuccess, projectId }: NewTaskM
         status: task.status,
         priority: task.priority,
         project_id: projectId,
-        assignee_id: task.assignee_id || user.id,
+        assignee_id: assignee || user.id, // Use the selected assignee
         due_date: task.due_date ? new Date(task.due_date).toISOString() : null,
         created_by: user.id
       };
 
-      const { error } = await supabase
-        .from('tasks')
-        .insert(taskData);
+      console.log('Creating task with data:', taskData);
 
-      if (error) throw error;
+      // Create the task
+      const { data: newTask, error: taskError } = await supabase
+        .from('tasks')
+        .insert(taskData)
+        .select()
+        .single();
+
+      if (taskError) {
+        console.error('Task creation error:', taskError);
+        throw taskError;
+      }
+
+      console.log('Task created successfully:', newTask);
+
+      // Get project details for email notification
+      const { data: projectData, error: projectError } = await supabase
+        .from('projects')
+        .select('name')
+        .eq('id', projectId)
+        .single();
+
+      if (projectError) throw projectError;
+
+      // Record an activity for the task creation
+      const { error: activityError } = await supabase
+        .from('activities')
+        .insert({
+          project_id: projectId,
+          task_id: newTask.id,
+          user_id: user.id,
+          type: 'task_create',
+          description: `created task "${task.title}"`
+        });
+
+      if (activityError) {
+        console.error('Error recording activity:', activityError);
+      }
 
       toast.success('Task created successfully');
       await onSuccess();
@@ -96,11 +159,17 @@ export function NewTaskModal({ isOpen, onClose, onSuccess, projectId }: NewTaskM
           
           <div>
             <label className="text-sm font-medium">Description</label>
-            <Textarea
-              value={task.description}
-              onChange={(e) => setTask(prev => ({ ...prev, description: e.target.value }))}
-              placeholder="Task description"
-            />
+            <div className="flex gap-2">
+              <Textarea
+                value={task.description}
+                onChange={(e) => setTask(prev => ({ ...prev, description: e.target.value }))}
+                placeholder="Task description"
+              />
+              <AIEnhanceButton
+                text={task.description}
+                onEnhancedText={(enhancedText) => setTask(prev => ({ ...prev, description: enhancedText }))}
+              />
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
