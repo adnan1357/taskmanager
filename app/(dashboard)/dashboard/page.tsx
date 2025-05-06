@@ -135,6 +135,52 @@ export default function DashboardPage() {
     initializeSession()
   }, [router])
 
+  useEffect(() => {
+    // Subscribe to task changes
+    const taskChannel = supabase
+      .channel('dashboard-task-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*', // Listen to all events (INSERT, UPDATE, DELETE)
+          schema: 'public',
+          table: 'tasks'
+        },
+        async () => {
+          console.log('Dashboard: Real-time task update received');
+          await fetchTasks();
+        }
+      )
+      .subscribe();
+
+    // Subscribe to project changes
+    const projectChannel = supabase
+      .channel('dashboard-project-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'projects'
+        },
+        async () => {
+          console.log('Dashboard: Real-time project update received');
+          await fetchRecentProjects();
+        }
+      )
+      .subscribe();
+
+    // Initial fetch
+    fetchTasks();
+    fetchRecentProjects();
+
+    // Cleanup subscriptions
+    return () => {
+      taskChannel.unsubscribe();
+      projectChannel.unsubscribe();
+    };
+  }, [supabase]);
+
   const fetchUserData = async () => {
     const { data: { user } } = await supabase.auth.getUser()
     if (user) {

@@ -120,8 +120,31 @@ export default function TasksPage() {
   }, [supabase]);
 
   useEffect(() => {
+    // Subscribe to task changes
+    const channel = supabase
+      .channel('tasks-page-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'tasks'
+        },
+        async () => {
+          console.log('Tasks page: Real-time task update received');
+          await fetchTasks();
+        }
+      )
+      .subscribe();
+
+    // Initial fetch
     fetchTasks();
-  }, [fetchTasks]);
+
+    // Cleanup subscription
+    return () => {
+      channel.unsubscribe();
+    };
+  }, [fetchTasks, supabase]);
 
   const handleTaskUpdate = async () => {
     await fetchTasks();

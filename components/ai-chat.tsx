@@ -76,124 +76,74 @@ export function AIChat({ className }: AIChat) {
       return null;
     }
 
-    return projects;
-  };
-
-  const updateTaskStatus = async (taskId: string, newStatus: string) => {
-    try {
-      const { error } = await supabase
-        .from('tasks')
-        .update({ 
-          status: newStatus,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', taskId);
-
-      if (error) throw error;
-      return true;
-    } catch (error) {
-      console.error('Error updating task status:', error);
-      return false;
-    }
-  };
-
-  const createTask = async (projectName: string, taskTitle: string, description?: string, priority: string = 'medium') => {
-    try {
-      console.log('Creating task:', { projectName, taskTitle, description, priority });
+    // For each task, fetch related comments and updates
+    const enhancedProjects = await Promise.all(projects.map(async (project) => {
+      if (!project.tasks || project.tasks.length === 0) {
+        return project;
+      }
       
-      // Get the current user
-      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      const taskIds = project.tasks.map((task: any) => task.id);
       
-      if (userError || !user) {
-        console.error('Error getting current user:', userError);
-        return `Sorry, I couldn't verify your user account. Please try signing out and back in.`;
+      // Fetch all task comments and updates from activities table
+      const { data: taskActivities, error: activitiesError } = await supabase
+        .from('activities')
+        .select(`
+          id,
+          description,
+          created_at,
+          type,
+          task_id,
+          user_id,
+          profiles:profiles!activities_user_id_fkey (
+            full_name,
+            avatar_url
+          )
+        `)
+        .in('task_id', taskIds)
+        .in('type', ['task_update', 'comment'])
+        .order('created_at', { ascending: false });
+      
+      if (activitiesError) {
+        console.error('Error fetching task activities:', activitiesError);
+        return project;
       }
+      
+      // Group activities by task
+      const activitiesByTask: Record<string, any[]> = {};
+      taskActivities?.forEach(activity => {
+        if (!activitiesByTask[activity.task_id]) {
+          activitiesByTask[activity.task_id] = [];
+        }
+        activitiesByTask[activity.task_id].push({
+          id: activity.id,
+          description: activity.description,
+          created_at: activity.created_at,
+          type: activity.type,
+          user: activity.profiles && Array.isArray(activity.profiles) && activity.profiles.length > 0 
+            ? {
+                name: activity.profiles[0].full_name,
+                avatar: activity.profiles[0].avatar_url
+              } 
+            : { name: 'Unknown', avatar: null }
+        });
+      });
+      
+      // Enhance tasks with their activities
+      const enhancedTasks = project.tasks.map((task: any) => ({
+        ...task,
+        comments: activitiesByTask[task.id] || []
+      }));
+      
+      return {
+        ...project,
+        tasks: enhancedTasks
+      };
+    }));
 
-      // First get all projects where user is a member
-      const { data: projectMemberships, error: membershipError } = await supabase
-        .from('project_members')
-        .select('project_id')
-        .eq('user_id', user.id);
-
-      if (membershipError) {
-        console.error('Error fetching project memberships:', membershipError);
-        return `Sorry, I encountered an error while checking your project access.`;
-      }
-
-      if (!projectMemberships?.length) {
-        return `You don't have access to any projects. Please join a project first.`;
-      }
-
-      const projectIds = projectMemberships.map(pm => pm.project_id);
-
-      // Find the project with more lenient matching, but only in user's projects
-      const { data: projects, error: projectError } = await supabase
-        .from('projects')
-        .select('id, name')
-        .in('id', projectIds)
-        .or(`name.ilike.${projectName},name.ilike.${projectName}%,name.ilike.%${projectName}`);
-
-      console.log('Project search result:', { projects, projectError });
-
-      if (projectError || !projects?.length) {
-        // Get all available projects to show in error message
-        const { data: availableProjects } = await supabase
-          .from('projects')
-          .select('name')
-          .in('id', projectIds)
-          .order('name');
-        
-        const projectList = availableProjects?.map(p => `"${p.name}"`).join(', ');
-        console.log('Project not found or error:', { projectError });
-        return `I couldn't find a project named "${projectName}". Your available projects are: ${projectList}. Please try again with one of these project names.`;
-      }
-
-      // If multiple matches, use the closest match
-      const project = projects.sort((a, b) => 
-        Math.abs(a.name.length - projectName.length) - Math.abs(b.name.length - projectName.length)
-      )[0];
-
-      console.log('Found project:', project);
-
-      // Ensure priority is a valid value
-      let validPriority = priority;
-      if (!['high', 'medium', 'low'].includes(validPriority)) {
-        validPriority = 'medium';
-      }
-
-      // Create the task
-      const { data: task, error: taskError } = await supabase
-        .from('tasks')
-        .insert([
-          {
-            title: taskTitle,
-            description: description || '',
-            status: 'todo',
-            project_id: project.id,
-            priority: validPriority,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-            created_by: user.id
-          }
-        ])
-        .select()
-        .single();
-
-      console.log('Task creation result:', { task, taskError });
-
-      if (taskError) {
-        console.error('Task creation error:', taskError);
-        throw taskError;
-      }
-
-      return `Great! I've added "${taskTitle}" to the ${project.name} project${validPriority !== 'medium' ? ` with ${validPriority} priority` : ''}.`;
-    } catch (error) {
-      console.error('Error creating task:', error);
-      return `Sorry, I encountered an error while creating the task.`;
-    }
+    return enhancedProjects;
   };
 
-  const handleStatusUpdate = async (taskTitle: string, newStatus: string) => {
+  const updateTaskStatus = async (taskTitle: string, newStatus: string) => {
     try {
       console.log('Updating task status:', { taskTitle, newStatus });
       
@@ -220,23 +170,116 @@ export function AIChat({ className }: AIChat) {
 
       const projectIds = projectMemberships.map(pm => pm.project_id);
 
-      // Find the task by title in user's projects
-      const { data: tasks, error: tasksError } = await supabase
+      // First try exact match for the task
+      const { data: exactTasks, error: exactTasksError } = await supabase
         .from('tasks')
         .select('id, title, status, project_id')
         .in('project_id', projectIds)
-        .ilike('title', taskTitle);
-
-      if (tasksError) {
-        console.error('Error fetching tasks:', tasksError);
+        .eq('title', taskTitle);
+        
+      if (exactTasksError) {
+        console.error('Error fetching tasks:', exactTasksError);
         return `Sorry, I encountered an error while looking for the task.`;
+      }
+      
+      // Then try ilike match if no exact match found
+      let tasks = exactTasks;
+      if (!tasks?.length) {
+        const { data: ilikeTasks, error: ilikeTasksError } = await supabase
+          .from('tasks')
+          .select('id, title, status, project_id')
+          .in('project_id', projectIds)
+          .ilike('title', `%${taskTitle}%`);
+          
+        if (ilikeTasksError) {
+          console.error('Error fetching tasks with ilike:', ilikeTasksError);
+          return `Sorry, I encountered an error while looking for the task.`;
+        }
+        
+        tasks = ilikeTasks;
       }
 
       if (!tasks?.length) {
-        return `I couldn't find a task with the title "${taskTitle}" in your projects.`;
+        // Try with more flexible matching
+        const { data: allTasks, error: allTasksError } = await supabase
+          .from('tasks')
+          .select('id, title, status, project_id')
+          .in('project_id', projectIds);
+          
+        if (allTasksError) {
+          console.error('Error fetching all tasks:', allTasksError);
+          return `Sorry, I encountered an error while looking for the task.`;
+        }
+        
+        // Find the closest match using string similarity
+        if (allTasks?.length) {
+          // Simple string similarity using Levenshtein distance
+          const findClosestMatch = (search: string, options: any[]) => {
+            let bestMatch = null;
+            let bestScore = Infinity;
+            
+            for (const option of options) {
+              const title = option.title.toLowerCase();
+              const searchLower = search.toLowerCase();
+              
+              // Skip if no overlap at all
+              if (!title.includes(searchLower) && !searchLower.includes(title)) {
+                // Calculate simple edit distance as fallback
+                const distance = Math.abs(title.length - searchLower.length);
+                if (distance < bestScore) {
+                  bestScore = distance;
+                  bestMatch = option;
+                }
+                continue;
+              }
+              
+              // Prefer exact word matches
+              const titleWords = title.split(/\s+/);
+              const searchWords = searchLower.split(/\s+/);
+              
+              let matchCount = 0;
+              for (const word of searchWords) {
+                if (titleWords.includes(word)) {
+                  matchCount++;
+                }
+              }
+              
+              // Calculate a score (lower is better)
+              const score = (searchWords.length - matchCount) * 10;
+              
+              if (score < bestScore) {
+                bestScore = score;
+                bestMatch = option;
+              }
+            }
+            
+            // Only return a match if it's reasonably close
+            return bestScore < 50 ? bestMatch : null;
+          };
+          
+          const bestMatch = findClosestMatch(taskTitle, allTasks);
+          if (bestMatch) {
+            tasks = [bestMatch];
+            console.log('Found closest matching task:', bestMatch.title);
+          }
+        }
       }
 
-      // If multiple tasks found, use the most recent one
+      if (!tasks?.length) {
+        return `I couldn't find a task with a title similar to "${taskTitle}" in your projects.`;
+      }
+
+      // Sort by title similarity to the searched title
+      tasks.sort((a, b) => {
+        const aMatch = a.title.toLowerCase().includes(taskTitle.toLowerCase());
+        const bMatch = b.title.toLowerCase().includes(taskTitle.toLowerCase());
+        
+        if (aMatch && !bMatch) return -1;
+        if (!aMatch && bMatch) return 1;
+        return 0;
+      });
+
+      // If multiple tasks found, use the most similar one
       const task = tasks[0];
       console.log('Found task to update:', task);
 
@@ -244,17 +287,28 @@ export function AIChat({ className }: AIChat) {
       const statusMap: { [key: string]: string } = {
         'todo': 'todo',
         'to do': 'todo',
+        'to-do': 'todo',
         'not started': 'todo',
         'new': 'todo',
+        'backlog': 'todo',
+        'planning': 'todo',
         'in progress': 'in_progress',
         'in-progress': 'in_progress',
         'working': 'in_progress',
         'started': 'in_progress',
+        'ongoing': 'in_progress',
+        'underway': 'in_progress',
+        'processing': 'in_progress',
+        'wip': 'in_progress', // work in progress
+        'doing': 'in_progress',
         'done': 'done',
         'completed': 'done',
         'complete': 'done',
         'finished': 'done',
-        'closed': 'done'
+        'closed': 'done',
+        'resolved': 'done',
+        'ready': 'done',
+        'finalized': 'done'
       };
 
       // Normalize the status
@@ -300,6 +354,172 @@ export function AIChat({ className }: AIChat) {
     }
   };
 
+  const createTask = async (projectName: string, taskTitle: string, description?: string, priority: string = 'medium') => {
+    try {
+      console.log('Creating task:', { projectName, taskTitle, description, priority });
+      
+      // Get the current user
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      
+      if (userError || !user) {
+        console.error('Error getting current user:', userError);
+        return `Sorry, I couldn't verify your user account. Please try signing out and back in.`;
+      }
+
+      // First get all projects where user is a member
+      const { data: projectMemberships, error: membershipError } = await supabase
+        .from('project_members')
+        .select('project_id')
+        .eq('user_id', user.id);
+
+      if (membershipError) {
+        console.error('Error fetching project memberships:', membershipError);
+        return `Sorry, I encountered an error while checking your project access.`;
+      }
+
+      if (!projectMemberships?.length) {
+        return `You don't have access to any projects. Please join a project first.`;
+      }
+
+      const projectIds = projectMemberships.map(pm => pm.project_id);
+
+      // Find the project with more lenient matching, but only in user's projects
+      const { data: projects, error: projectError } = await supabase
+        .from('projects')
+        .select('id, name')
+        .in('id', projectIds)
+        .or(`name.ilike.${projectName},name.ilike.${projectName}%,name.ilike.%${projectName}`);
+
+      console.log('Project search result:', { projects, projectError });
+
+      if (projectError || !projects?.length) {
+        // Try more aggressive fuzzy matching
+        const { data: allProjects, error: allProjectsError } = await supabase
+          .from('projects')
+          .select('id, name')
+          .in('id', projectIds);
+          
+        if (allProjectsError || !allProjects?.length) {
+          // If still can't find, get all available projects to show in error message
+          const { data: availableProjects } = await supabase
+            .from('projects')
+            .select('name')
+            .in('id', projectIds)
+            .order('name');
+          
+          const projectList = availableProjects?.map(p => `"${p.name}"`).join(', ');
+          console.log('Project not found or error:', { projectError });
+          return `I couldn't find a project named "${projectName}". Your available projects are: ${projectList}. Please try again with one of these project names.`;
+        }
+        
+        // Find closest match using word similarity
+        const findBestProjectMatch = (searchName: string, projectOptions: any[]) => {
+          let bestMatch = null;
+          let highestScore = 0;
+          
+          const searchWords = searchName.toLowerCase().split(/\s+/);
+          
+          for (const project of projectOptions) {
+            const projectName = project.name.toLowerCase();
+            const projectWords = projectName.split(/\s+/);
+            
+            // Calculate word overlap
+            let matchCount = 0;
+            for (const word of searchWords) {
+              // Check for word or partial word match
+              for (const projectWord of projectWords) {
+                if (projectWord.includes(word) || word.includes(projectWord)) {
+                  matchCount++;
+                  break;
+                }
+              }
+            }
+            
+            // Calculate a similarity score (0-100)
+            const score = (matchCount / searchWords.length) * 100;
+            
+            if (score > highestScore) {
+              highestScore = score;
+              bestMatch = project;
+            }
+          }
+          
+          // Only return if reasonably confident (40% match or better)
+          return highestScore >= 40 ? bestMatch : null;
+        };
+        
+        const bestProjectMatch = findBestProjectMatch(projectName, allProjects);
+        if (bestProjectMatch) {
+          console.log(`Found best matching project: "${bestProjectMatch.name}" for search "${projectName}"`);
+          return await createTaskWithProject(bestProjectMatch, taskTitle, user.id, priority, description);
+        } else {
+          // If no match found, show available projects
+          const projectList = allProjects.map(p => `"${p.name}"`).join(', ');
+          return `I couldn't find a project similar to "${projectName}". Your available projects are: ${projectList}. Please try again with one of these project names.`;
+        }
+      }
+
+      // If multiple matches, use the closest match
+      const project = projects.sort((a, b) => 
+        Math.abs(a.name.length - projectName.length) - Math.abs(b.name.length - projectName.length)
+      )[0];
+
+      console.log('Found project:', project);
+      
+      return await createTaskWithProject(project, taskTitle, user.id, priority, description);
+    } catch (error) {
+      console.error('Error creating task:', error);
+      return `Sorry, I encountered an error while creating the task.`;
+    }
+  };
+
+  // Helper function to actually create the task once we've found the project
+  const createTaskWithProject = async (
+    project: { id: string, name: string }, 
+    taskTitle: string, 
+    userId: string,
+    priority: string = 'medium',
+    description?: string
+  ) => {
+    try {
+      // Ensure priority is a valid value
+      let validPriority = priority;
+      if (!['high', 'medium', 'low'].includes(validPriority)) {
+        validPriority = 'medium';
+      }
+
+      // Create the task
+      const { data: task, error: taskError } = await supabase
+        .from('tasks')
+        .insert([
+          {
+            title: taskTitle,
+            description: description || '',
+            status: 'todo',
+            project_id: project.id,
+            priority: validPriority,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            created_by: userId
+          }
+        ])
+        .select()
+        .single();
+
+      console.log('Task creation result:', { task, taskError });
+
+      if (taskError) {
+        console.error('Task creation error:', taskError);
+        throw taskError;
+      }
+
+      return `Great! I've added "${taskTitle}" to the ${project.name} project${validPriority !== 'medium' ? ` with ${validPriority} priority` : ''}.`;
+    } catch (error) {
+      console.error('Error in createTaskWithProject:', error);
+      throw error;
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
@@ -328,7 +548,16 @@ export function AIChat({ className }: AIChat) {
         /(?:create|add)\s+(?:a\s+)?(?:new\s+)?task\s+['"]?(.+?)['"]?\s+(?:in|to)\s+(?:the\s+)?['"]?(.+?)(?:\s+project)?['"]?(?:\s+with\s+(.+))?$/i,
         
         // Pattern for "Add [task] to [project]" with optional attributes
-        /(?:add|create)\s+['"]?(.+?)['"]?\s+(?:to|in)\s+(?:the\s+)?['"]?(.+?)(?:\s+project)?['"]?(?:\s+with\s+(.+))?$/i
+        /(?:add|create)\s+['"]?(.+?)['"]?\s+(?:to|in)\s+(?:the\s+)?['"]?(.+?)(?:\s+project)?['"]?(?:\s+with\s+(.+))?$/i,
+        
+        // Pattern for "I need a new task [task] in [project]"
+        /(?:i\s+need|i\s+want|please\s+create|please\s+add)\s+(?:a\s+)?(?:new\s+)?task\s+['"]?(.+?)['"]?\s+(?:in|to|for)\s+(?:the\s+)?['"]?(.+?)(?:\s+project)?['"]?(?:\s+with\s+(.+))?/i,
+        
+        // Pattern for "Make a task called [task] for [project]"
+        /(?:make|create|setup)\s+(?:a\s+)?(?:new\s+)?task\s+(?:called|named|titled)\s+['"]?(.+?)['"]?\s+(?:for|in|to)\s+(?:the\s+)?['"]?(.+?)(?:\s+project)?['"]?(?:\s+with\s+(.+))?/i,
+        
+        // Pattern for "Can you add [task] to [project]"
+        /(?:can\s+you|could\s+you|would\s+you)?\s+(?:please\s+)?(?:add|create)\s+(?:a\s+)?(?:new\s+)?(?:task\s+)?['"]?(.+?)['"]?\s+(?:to|in|for)\s+(?:the\s+)?['"]?(.+?)(?:\s+project)?['"]?(?:\s+with\s+(.+))?/i
       ];
 
       // Check for task creation request
@@ -461,18 +690,37 @@ Guidelines for your response:
 9. Maintain context from previous messages to understand follow-up questions
 10. If a task or project was mentioned in previous messages, use that context for follow-up questions
 11. Reference project descriptions and task details when relevant to the conversation
-12. Consider recent activity updates when providing context-aware responses`;
+12. Consider recent activity updates when providing context-aware responses
+13. Include task descriptions and comments in your responses when they're relevant to the user's question
+14. When asked about a specific task, include its description and any recent comments
+15. Only provide information about tasks from projects the user is a member of
+16. If a user asks about task context, include both the task description and any comments or updates`;
 
       // Improve status update detection
       const statusUpdatePatterns = [
         // Pattern for "mark [task] as [status]"
         /(?:mark|set|change|update)\s+(?:the\s+)?(?:task\s+)?['"]?(.+?)['"]?\s+(?:as|to)\s+(.+)/i,
+        
         // Pattern for "mark as [status]"
         /(?:mark|set|change|update)\s+(?:as|to)\s+(.+)/i,
+        
         // Pattern for "complete [task]"
         /(?:complete|finish|done with)\s+(?:the\s+)?(?:task\s+)?['"]?(.+?)['"]?/i,
+        
         // Pattern for "mark [task] complete"
-        /(?:mark|set)\s+(?:the\s+)?(?:task\s+)?['"]?(.+?)['"]?\s+(?:as\s+)?(?:complete|done)/i
+        /(?:mark|set)\s+(?:the\s+)?(?:task\s+)?['"]?(.+?)['"]?\s+(?:as\s+)?(?:complete|done)/i,
+        
+        // Pattern for "move [task] to [status]"
+        /(?:move|transition|change)\s+(?:the\s+)?(?:task\s+)?['"]?(.+?)['"]?\s+(?:to|into)\s+(.+)/i,
+        
+        // Pattern for "update [task] status to [status]"
+        /(?:update|change|set)\s+(?:the\s+)?(?:status\s+(?:of\s+)?)?(?:task\s+)?['"]?(.+?)['"]?\s+(?:to|as)\s+(.+)/i,
+        
+        // Pattern for "can you mark [task] as [status]"
+        /(?:can\s+you|could\s+you|would\s+you)?\s+(?:please\s+)?(?:mark|set|change)\s+(?:the\s+)?(?:task\s+)?['"]?(.+?)['"]?\s+(?:as|to)\s+(.+)/i,
+        
+        // Pattern for "I want to move [task] to [status]"
+        /(?:i\s+want\s+to|i\s+need\s+to|please)\s+(?:move|change|update|mark)\s+(?:the\s+)?(?:task\s+)?['"]?(.+?)['"]?\s+(?:to|as)\s+(.+)/i
       ];
 
       // Check all patterns for a status update request
@@ -515,7 +763,7 @@ Guidelines for your response:
 
       if (statusMatch && taskTitle) {
         console.log('Status update request detected:', { taskTitle, newStatus });
-        const response = await handleStatusUpdate(taskTitle, newStatus);
+        const response = await updateTaskStatus(taskTitle, newStatus);
         
         setMessages(prev => [...prev, { 
           role: 'assistant', 
@@ -607,4 +855,4 @@ Guidelines for your response:
       </div>
     </div>
   );
-} 
+}

@@ -82,6 +82,31 @@ export function KanbanBoard({ tasks, projectId, onTaskUpdate, onTaskSelect }: Ka
   const [isDragging, setIsDragging] = useState(false);
 
   useEffect(() => {
+    // Subscribe to task changes for this project
+    const channel = supabase
+      .channel(`kanban-tasks-${projectId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'tasks',
+          filter: projectId ? `project_id=eq.${projectId}` : undefined
+        },
+        async () => {
+          console.log('Kanban: Real-time task update received');
+          onTaskUpdate?.();
+        }
+      )
+      .subscribe();
+
+    // Cleanup subscription
+    return () => {
+      channel.unsubscribe();
+    };
+  }, [projectId, onTaskUpdate]);
+
+  useEffect(() => {
     const taskMap = tasks.reduce((acc, task) => {
       acc[task.id] = task;
       return acc;

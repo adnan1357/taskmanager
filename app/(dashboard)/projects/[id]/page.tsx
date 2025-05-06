@@ -393,8 +393,51 @@ export default function ProjectPage({ params }: { params: { id: string } }) {
   }, [params.id, supabase]);
 
   useEffect(() => {
+    // Subscribe to task changes
+    const taskChannel = supabase
+      .channel('project-task-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'tasks',
+          filter: `project_id=eq.${params.id}`
+        },
+        async () => {
+          console.log('Project page: Real-time task update received');
+          await fetchProjectData();
+        }
+      )
+      .subscribe();
+
+    // Subscribe to activity changes
+    const activityChannel = supabase
+      .channel('project-activity-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'activities',
+          filter: `project_id=eq.${params.id}`
+        },
+        async () => {
+          console.log('Project page: Real-time activity update received');
+          await fetchProjectData();
+        }
+      )
+      .subscribe();
+
+    // Initial fetch
     fetchProjectData();
-  }, [fetchProjectData]);
+
+    // Cleanup subscriptions
+    return () => {
+      taskChannel.unsubscribe();
+      activityChannel.unsubscribe();
+    };
+  }, [params.id, supabase, fetchProjectData]);
 
   const handleTaskUpdate = async (fromKanban = false) => {
     // Always refresh the task data to ensure assignee changes are reflected
